@@ -59,6 +59,62 @@ message RequestOperation {
     optional RecordSaveRequest recordSaveRequest = 210;
     optional RecordRetrieveRequest recordRetrieveRequest = 211;
     optional QueryRetrieveRequest queryRetrieveRequest = 220;
+    optional AssetUploadTokenRetrieveRequest assetUploadTokenRetrieveRequest = 230;
+  }
+
+  message AssetUploadTokenRetrieveRequest {
+    message AssetUpload {
+      message Name {
+        optional string name = 1;
+      }
+      
+      message Asset {
+        message AssetData {
+          optional bytes sig = 2;
+          optional uint32 size = 4;
+          optional RecordIdentifier associatedRecord = 10;
+        }
+        optional Name name = 1;
+        optional AssetData data = 2;
+      }
+      optional RecordIdentifier record = 1;
+      optional Record.Type recordType = 2;
+      optional Asset asset = 3;
+    }
+    message NamedHeader {
+      optional string name = 1;
+      optional string value = 2;
+    }
+    // From https://github.com/TaeHagen/rustpush/blob/master/src/mmcs.proto
+    message AuthorizePut {
+      message PutData {
+        message ChunkInfo {
+          required bytes chunk_checksum = 1;
+          optional bytes chunk_encryption_key = 2;
+          required uint32 chunk_length = 3;
+        }
+          message Footer {
+              optional uint32 chunk_count = 1;
+              optional string profile_type = 101;
+              optional string unk_date = 102;	//2022-08-11
+              optional uint32 f103 = 103;
+              optional string extension = 104;
+          }
+          optional bytes sig = 1;
+          optional string token = 2;
+          repeated ChunkInfo chunks = 3;
+          optional Footer footer = 8;
+      }
+      optional PutData data = 1;
+      optional uint32 f3 = 3;
+    }
+    optional AssetUpload assetUpload = 4;
+    repeated NamedHeader header = 5;
+    optional AuthorizePut authorizePut = 6;
+    optional int32 unk1 = 8;
+
+
+
   }
 
   message RecordSaveRequest {
