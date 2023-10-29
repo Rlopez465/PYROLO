@@ -54,7 +54,7 @@ def main():
             
     logging.debug("CloudKit token: ", cloudkit_token)
 
-    ck = cloudkit.CloudKit(ds_prs_id, cloudkit_token, mme_token, sandbox=True)
+    ck = cloudkit.User(ds_prs_id, cloudkit_token, mme_token, sandbox=True)
     #ck.container("iCloud.dev.jjtech.experiments.cktest").save_record(cloudkit.Record("test", "ToDoItem", {"title": "Test2"}))
 
     # Read the test file
@@ -62,11 +62,13 @@ def main():
         file = f.read()
 
 
-    a = cloudkit.CloudKitAsset("test", "rtf", file)
+    a = cloudkit.Asset("test", "rtf", file)
     print(a.hash().hex())
 
     #cloudkit._build_authorize_put(cloudkit.Record("testassset", "test", None), a, "iCloud.dev.jjtech.experiments.cktest")
-    a._authorize_put(ck.container("iCloud.dev.jjtech.experiments.cktest"), cloudkit.Record("testassset", "test", None), a)
+    #a._authorize_put(ck.container("iCloud.dev.jjtech.experiments.cktest"), cloudkit.Record("testassset", "test", None), a)
+    c =ck.container("iCloud.dev.jjtech.experiments.cktest")
+    c._upload_asset(cloudkit.Record("another", "test", None), a)
     #c = cloudkit.CloudKitAsset.Chunk(file, None)
     #print(c.checksum().hex())
         

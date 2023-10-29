@@ -1,5 +1,12 @@
 syntax = "proto2";
 
+// Compile with protoc ./icloud/cloudkit.proto --python_out=.
+
+message NamedHeader {
+  optional string name = 1;
+  optional string value = 2;
+}
+
 // Based on https://gist.github.com/horrorho/9c0ff20055b854f4298750cfad635fe2
 // and https://github.com/horrorho/InflatableDonkey/blob/master/src/main/resources/cloud_kit.proto
 message RequestOperation {
@@ -80,10 +87,6 @@ message RequestOperation {
       optional RecordIdentifier record = 1;
       optional Record.Type recordType = 2;
       optional Asset asset = 3;
-    }
-    message NamedHeader {
-      optional string name = 1;
-      optional string value = 2;
     }
     // From https://github.com/TaeHagen/rustpush/blob/master/src/mmcs.proto
     message AuthorizePut {
@@ -239,6 +242,42 @@ message RequestOperation {
     optional ZoneRetrieveResponse zoneRetrieveResponse = 201;
     optional RecordRetrieveResponse recordRetrieveResponse = 211;
     optional QueryRetrieveResponse queryRetrieveResponse = 220;
+    optional AssetUploadTokenRetrieveResponse assetUploadTokenRetrieveResponse = 230;
+  }
+
+  message AssetUploadTokenRetrieveResponse {
+    message AssetInfo { // Metadata about the asset, how to use it in a zone, etc.
+      optional string encodedInnerProto = 1; // Base64 encoded protobuf, appended to 0x08
+
+
+    }
+    message UploadInfo {
+      message Bucket {
+        message URL {
+          optional string domain = 1;
+          optional uint32 port = 2;
+          optional string method = 3;
+          optional string path = 4;
+          optional string protocol = 5;
+          optional string version = 6;
+          optional string protocol2 = 7;
+          repeated NamedHeader headers = 8;
+        }
+        optional string bucketName = 1;
+        optional URL url = 2;
+        optional string unk1 = 4;
+        message ChunkHash {
+          optional bytes hash = 1;
+        }
+        repeated ChunkHash chunks = 5;
+
+      }
+      repeated Bucket buckets = 1;
+    }
+    optional AssetInfo assetInfo = 2;
+    optional UploadInfo uploadInfo = 3;
+
+    //repeated NamedHeader header = 4; // Not actually useful, just headers from the backend server
   }
   
   message Operation {

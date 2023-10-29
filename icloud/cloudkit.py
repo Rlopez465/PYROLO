@@ -9,7 +9,7 @@ from io import BytesIO
 
 import requests
 
-from . import _utils, cloudkit_pb2, gsa
+from . import _utils, cloudkit_pb2, gsa, mmcs
 
 logger = logging.getLogger("cloudkit")
 
@@ -22,8 +22,17 @@ class Record:
     zone: str = "_defaultZone"
     owner: str = "_defaultOwner"
 
+@dataclasses.dataclass
+class Asset:
+    name: str
+    extension: str
+    data: bytes
 
-class CloudKit:
+    def hash(self) -> bytes:
+        header = b"com.apple.XattrObjectSalt\0com.apple.DataObjectSalt\0"
+        return b"\x01" + hashlib.sha1(header + self.data).digest()
+    
+class User:
     def __init__(
         self, dsid: str, cloudkit_token: str, mme_token: str, sandbox: bool = False
     ):
@@ -43,80 +52,21 @@ class CloudKit:
         self,
         container: str,
         scope: Literal["PUBLIC"] | Literal["PRIVATE"] | Literal["SHARED"] = "PUBLIC",
-    ) -> "CloudKitContainer":
+    ) -> "Container":
         """
         Convenience method for creating a CloudKitContainer object.
         """
-        return CloudKitContainer(container, self, scope)
+        return Container(container, self, scope)
 
 import hashlib
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-@dataclasses.dataclass
-class CloudKitAsset:
-    name: str
-    extension: str
-    data: bytes
 
-    @dataclasses.dataclass
-    class Chunk:
-        data: bytes
-
-        @classmethod
-        def decrypt(cls, data, key): 
-            iv = 16 * b'\x00'
-            decryptor = Cipher(algorithms.AES(key), modes.CFB(iv)).decryptor()
-            d = decryptor.update(data) + decryptor.finalize()
-            return cls(d)
-        
-        def encrypt(self, key) -> bytes: 
-            iv = 16 * b'\x00'
-            encryptor = Cipher(algorithms.AES(key), modes.CFB(iv)).encryptor()
-            d = encryptor.update(self.data) + encryptor.finalize()
-            return d
-
-        def checksum(self):
-            return b'\x81' + hashlib.sha256(hashlib.sha256(self.data).digest()).digest()[:20]
-    
-    def chunks(self) -> list[Chunk]:
-        return [self.Chunk(self.data)] # TODO: Implement chunking
-
-    def hash(self) -> bytes:
-        header = b"com.apple.XattrObjectSalt\0com.apple.DataObjectSalt\0"
-        return b"\x01" + hashlib.sha1(header + self.data).digest()
-
-    def _authorize_put(self, container: "CloudKitContainer", record, asset):
-        headers = {
-            "x-cloudkit-authtoken": container.user.cloudkit_token,
-            "x-cloudkit-userid": container.user_id,
-            "x-cloudkit-containerid": container.container,
-            "x-cloudkit-bundleid": ".".join(
-                container.container.split(".")[1:]
-            ),  # Remove the "iCloud." prefix
-            "x-cloudkit-databasescope": container.scope,
-            "x-cloudkit-environment": "Sandbox" if container.user.sandbox else "Production",
-            "accept": "application/x-protobuf",
-            "content-type": 'application/x-protobuf; desc="https://gateway.icloud.com:443/static/protobuf/CloudDB/CloudDBClient.desc"; messageType=RequestOperation; delimited=true',
-            "x-apple-operation-id": random.randbytes(8).hex(),
-            "x-apple-request-uuid": str(uuid.uuid4()).upper(),
-            "user-agent": "CloudKit/2060.11 (22F82)",
-        }
-        headers.update(gsa.generate_anisette_headers())
-
-        body= _build_authorize_put(record, asset, container.container, container.user.sandbox, container.scope)
-        r= requests.post("https://gateway.icloud.com/ckdatabase/api/client/asset/retrieve/token",
-                      headers=headers,
-                      data=body,
-                      verify=False)
-        
-        print(r.content)
-
-
-class CloudKitContainer:
+class Container:
     def __init__(
         self,
         container: str,
-        user: CloudKit,
+        user: User,
         scope: Literal["PUBLIC"] | Literal["PRIVATE"] | Literal["SHARED"] = "PUBLIC",
     ):
         """
@@ -130,8 +80,9 @@ class CloudKitContainer:
         self.scope = scope
         self.user_id = self._fetch_user_id()
 
-    def _fetch_user_id(self):
-        headers = {
+
+    def _headers(self, auth: bool = True):
+        h = {
             "x-cloudkit-containerid": self.container,
             "x-cloudkit-bundleid": ".".join(
                 self.container.split(".")[1:]
@@ -141,7 +92,16 @@ class CloudKitContainer:
             "accept": "application/x-protobuf",
             "x-apple-operation-id": random.randbytes(8).hex(),
             "x-apple-request-uuid": str(uuid.uuid4()).upper(),
+            "user-agent": "CloudKit/2060.11 (22F82)",
         }
+        if auth:
+            h["x-cloudkit-authtoken"] = self.user.cloudkit_token
+            h["x-cloudkit-userid"] = self.user_id
+            h["content-type"] = 'application/x-protobuf; desc="https://gateway.icloud.com:443/static/protobuf/CloudDB/CloudDBClient.desc"; messageType=RequestOperation; delimited=true'
+        return h
+    
+    def _fetch_user_id(self):
+        headers = self._headers(auth=False)
 
         headers.update(gsa.generate_anisette_headers())
 
@@ -164,21 +124,7 @@ class CloudKitContainer:
         """
         logger.info(f"Saving record {record.name} to {self.container}")
 
-        headers = {
-            "x-cloudkit-authtoken": self.user.cloudkit_token,
-            "x-cloudkit-userid": self.user_id,
-            "x-cloudkit-containerid": self.container,
-            "x-cloudkit-bundleid": ".".join(
-                self.container.split(".")[1:]
-            ),  # Remove the "iCloud." prefix
-            "x-cloudkit-databasescope": self.scope,
-            "x-cloudkit-environment": "Sandbox" if self.user.sandbox else "Production",
-            "accept": "application/x-protobuf",
-            "content-type": 'application/x-protobuf; desc="https://gateway.icloud.com:443/static/protobuf/CloudDB/CloudDBClient.desc"; messageType=RequestOperation; delimited=true',
-            "x-apple-operation-id": random.randbytes(8).hex(),
-            "x-apple-request-uuid": str(uuid.uuid4()).upper(),
-            "user-agent": "CloudKit/2060.11 (22F82)",
-        }
+        headers = self._headers()
 
         headers.update(gsa.generate_anisette_headers())
 
@@ -196,9 +142,65 @@ class CloudKitContainer:
             r.content
         )  # Will raise an exception if the response is an error
 
+    def _upload_asset(self, record: Record, asset: Asset): # Called by save_record when the record has an asset attached
+        headers = self._headers()
+
+        headers.update(gsa.generate_anisette_headers())
+
+        # Chunk the asset
+        chunks = mmcs.chunk(asset.data) # list[tuple[hash, key, data]]
+
+        body = _build_authorize_put(self, record, asset, chunks)
+        r = requests.post(
+            "https://gateway.icloud.com/ckdatabase/api/client/asset/retrieve/token",
+            headers=headers,
+            data=body,
+            verify=False,
+        )
+
+        r = _parse_response(r.content)
+
+        print(r.assetUploadTokenRetrieveResponse)
+
+        buckets = [] # dict[Bucket, list[tuple[hash, key, data]]]
+        for bucket in r.assetUploadTokenRetrieveResponse.uploadInfo.buckets:
+            b = mmcs.Bucket(
+                bucket.url.protocol2 + "://" + bucket.url.domain + ":" + str(bucket.url.port) + bucket.url.path, 
+                {header.name: header.value for header in bucket.url.headers},
+                [chunk.hash for chunk in bucket.chunks]
+                )
+            buckets.append(b)
+            
+            # for chunk_h in bucket.chunks:
+            #     chunk_hash = chunk_h.hash
+            #     print(chunk_hash.hex())
+            #     # Check for the chunk in chunks list
+            #     for chunk in chunks:
+            #         print(chunk[0].hex())
+            #         if chunk[0] == chunk_hash:
+
+            #             upload.append({b: chunk})
+            #             break
+            #upload.append({bucket: []}
+        #print(upload)
+
+        mmcs.upload_chunks(chunks, buckets)
+            
+
+        # map: mmcs.ChunkMap = {} # TODO: STUB
+
+        # file.upload(map)
+
+        # # CompletePut
+
+
+
+
 
 def _parse_response(response: bytes):
     try:
+        #import base64
+        #print(base64.b64encode(_undelimit_messages(response)[0]))
         r = cloudkit_pb2.ResponseOperation.FromString(_undelimit_messages(response)[0])
     except Exception as e:
         logger.warning(f"Failed to parse response: {e} {response.hex()}")
@@ -211,7 +213,8 @@ def _parse_response(response: bytes):
             )
         else:
             raise Exception("Unknown CloudKit error")
-
+        
+    return r
 
 def _build_header(
     container: str,
@@ -242,14 +245,13 @@ def _build_header(
     return header
 
 def _build_authorize_put(
-    record: Record,
-    asset: CloudKitAsset,
-    container: str,
-    sandbox: bool = False,
-    database: Literal["PUBLIC"] | Literal["PRIVATE"] | Literal["SHARED"] = "PUBLIC",
-):
+    container: Container,
+    record: Record, # record to attach to
+    asset: Asset, # asset metadata, unencrypted
+    chunks: list[tuple[bytes, bytes, bytes]],
+) -> bytes:
     request = cloudkit_pb2.RequestOperation()
-    request.header.CopyFrom(_build_header(container, sandbox, database))
+    request.header.CopyFrom(_build_header(container.container, container.user.sandbox, container.scope))
 
     request.request.operationUUID = str(uuid.uuid4()).upper()
     request.request.type = cloudkit_pb2.Operation.Type.ASSET_UPLOAD_TOKEN_RETRIEVE_TYPE
@@ -265,19 +267,14 @@ def _build_authorize_put(
     request.assetUploadTokenRetrieveRequest.assetUpload.asset.data.associatedRecord.CopyFrom(_build_record_identifier(record))
 
 
-    for chunk in asset.chunks():
-        #c = cloudkit_pb2.AssetUploadTokenRetrieveRequest.AssetUpload.Asset.Chunk()
-        #c.size = len(chunk.data)
-        #c.associatedRecord.CopyFrom(_build_record_identifier(record))
-        #equest.assetUploadTokenRetrieveRequest.assetUpload.asset.chunks.append(c)
-
-        key = random.randbytes(16)
-        request.assetUploadTokenRetrieveRequest.authorizePut.data.chunks.append(cloudkit_pb2.AssetUploadTokenRetrieveRequest.AuthorizePut.PutData.ChunkInfo(chunk_checksum=chunk.checksum(), chunk_encryption_key = b"\x01" + key, chunk_length=len(chunk.data)))
+    for chunk in chunks:
+        #tuple[hash, key, data]
+        request.assetUploadTokenRetrieveRequest.authorizePut.data.chunks.append(cloudkit_pb2.AssetUploadTokenRetrieveRequest.AuthorizePut.PutData.ChunkInfo(chunk_checksum=chunk[0], chunk_encryption_key = b"\x01" + chunk[1], chunk_length=len(chunk[2])))
         
-    request.assetUploadTokenRetrieveRequest.header.append(cloudkit_pb2.AssetUploadTokenRetrieveRequest.NamedHeader(name="x-apple-mmcs-proto-version", value="5.0"))
-    request.assetUploadTokenRetrieveRequest.header.append(cloudkit_pb2.AssetUploadTokenRetrieveRequest.NamedHeader(name="x-apple-mmcs-plist-sha256", value="fvj0Y/Ybu1pq0r4NxXw3eP51exujUkEAd7LllbkTdK8="))
-    request.assetUploadTokenRetrieveRequest.header.append(cloudkit_pb2.AssetUploadTokenRetrieveRequest.NamedHeader(name="x-apple-mmcs-plist-version", value="v1.0"))
-    request.assetUploadTokenRetrieveRequest.header.append(cloudkit_pb2.AssetUploadTokenRetrieveRequest.NamedHeader(name="x-mme-client-info", value="<MacBookPro18,3> <macOS;13.4.1;22F82> <com.apple.icloud.content/2050.13.1.1 (com.apple.CloudKit/(null))>"))
+    request.assetUploadTokenRetrieveRequest.header.append(cloudkit_pb2.NamedHeader(name="x-apple-mmcs-proto-version", value="5.0"))
+    request.assetUploadTokenRetrieveRequest.header.append(cloudkit_pb2.NamedHeader(name="x-apple-mmcs-plist-sha256", value="fvj0Y/Ybu1pq0r4NxXw3eP51exujUkEAd7LllbkTdK8="))
+    request.assetUploadTokenRetrieveRequest.header.append(cloudkit_pb2.NamedHeader(name="x-apple-mmcs-plist-version", value="v1.0"))
+    request.assetUploadTokenRetrieveRequest.header.append(cloudkit_pb2.NamedHeader(name="x-mme-client-info", value="<MacBookPro18,3> <macOS;13.4.1;22F82> <com.apple.icloud.content/2050.13.1.1 (com.apple.CloudKit/(null))>"))
 
     request.assetUploadTokenRetrieveRequest.unk1 = 1
     request.assetUploadTokenRetrieveRequest.authorizePut.f3 = 81
@@ -289,9 +286,11 @@ def _build_authorize_put(
     request.assetUploadTokenRetrieveRequest.authorizePut.data.sig = asset.hash()
     request.assetUploadTokenRetrieveRequest.authorizePut.data.token = ""
 
-    request.assetUploadTokenRetrieveRequest.authorizePut.data.footer.chunk_count = len(asset.chunks())
+    request.assetUploadTokenRetrieveRequest.authorizePut.data.footer.chunk_count = len(chunks)
     request.assetUploadTokenRetrieveRequest.authorizePut.data.footer.profile_type = "kCKProfileTypeRabin"
     request.assetUploadTokenRetrieveRequest.authorizePut.data.footer.extension = asset.extension
+
+    #print(request)
 
     return _delimit_messages([request.SerializeToString()])
 
