@@ -61,6 +61,8 @@ def main():
     with open("/Users/jjtech/Downloads/test.rtf", "rb") as f:
         file = f.read()
 
+    file = random.randbytes(2)
+
 
     a = cloudkit.Asset("test", "rtf", file)
     print(a.hash().hex())

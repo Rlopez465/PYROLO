@@ -37,13 +37,15 @@ CHUNK_SIZE = 0x500000
 
 @dataclass
 class Bucket: # Also known as a container
+    name: str
+    token: str
     url: str
     headers: dict[str, str]
     chunks: list[bytes] # list[hash]
 
     def upload(self, datas: list[bytes]):
         # list[data]
-        requests.put(self.url, data=b''.join(datas), headers=self.headers, verify=False)
+        return requests.put(self.url, data=b''.join(datas), headers=self.headers, verify=False)
 
     def download(self) -> list[bytes]:
         pass
@@ -70,13 +72,17 @@ def chunk(data: bytes) -> list[tuple[bytes, bytes, bytes]]:
 
 def upload_chunks(chunks: list[tuple[bytes,bytes,bytes]], buckets: list[Bucket]):
     # list[dict[Bucket, tuple[hash, key, data]]]
+    lens = []
     for bucket in buckets:
         to_upload = []
         for c in bucket.chunks:
             chunk = [x for x in chunks if x[0] == c][0]
             #chunk = encrypt_chunk(chunk[2], chunk[1])
             to_upload.append(chunk[2])
-        bucket.upload(to_upload)
+        r = bucket.upload(to_upload)
+        lens.append((len(b"".join(to_upload)), r))
+
+    return lens
 
 def decrypt_chunk(chunk: bytes, key: bytes) -> bytes:
     iv = 16 * b'\x00'
@@ -101,5 +107,4 @@ def download_chunks(download: list[dict[Bucket, tuple[bytes, bytes]]], reconstru
         reordered.append(output[reference])
     
     return b''.join(reordered)
-
 

@@ -7,6 +7,21 @@ message NamedHeader {
   optional string value = 2;
 }
 
+message PutComplete {
+  message Receipt {
+    optional string url = 1;
+    optional uint32 status = 2;
+    repeated NamedHeader headers = 4;
+    optional string unk1 = 7;
+    repeated NamedHeader stats1 = 8;
+    repeated NamedHeader stats2 = 9;
+    optional string verify = 10;
+    optional uint32 unk2 = 13;
+  }
+  repeated Receipt receipt = 1;
+  optional bytes validate = 2;
+}
+
 // Based on https://gist.github.com/horrorho/9c0ff20055b854f4298750cfad635fe2
 // and https://github.com/horrorho/InflatableDonkey/blob/master/src/main/resources/cloud_kit.proto
 message RequestOperation {
@@ -248,7 +263,10 @@ message RequestOperation {
   message AssetUploadTokenRetrieveResponse {
     message AssetInfo { // Metadata about the asset, how to use it in a zone, etc.
       optional string encodedInnerProto = 1; // Base64 encoded protobuf, appended to 0x08
+      message AssetInfoInner {
+        optional string container = 1;
 
+      } 
 
     }
     message UploadInfo {
@@ -273,6 +291,7 @@ message RequestOperation {
 
       }
       repeated Bucket buckets = 1;
+      optional bytes validate  =6;
     }
     optional AssetInfo assetInfo = 2;
     optional UploadInfo uploadInfo = 3;

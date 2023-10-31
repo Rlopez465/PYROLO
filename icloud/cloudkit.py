@@ -6,10 +6,9 @@ import uuid
 from typing import Literal
 from io import BytesIO
 
-
 import requests
 
-from . import _utils, cloudkit_pb2, gsa, mmcs
+from . import _utils, cloudkit_pb2, gsa, mmcs, _cloudkit
 
 logger = logging.getLogger("cloudkit")
 
@@ -100,6 +99,37 @@ class Container:
             h["content-type"] = 'application/x-protobuf; desc="https://gateway.icloud.com:443/static/protobuf/CloudDB/CloudDBClient.desc"; messageType=RequestOperation; delimited=true'
         return h
     
+    def _alt_headers(self):
+        return {
+            "x-cloudkit-databasescope": self.scope,
+            "x-cloudkit-container": self.container,
+            "x-apple-c2-metric-triggers": "0",
+            "user-agent": "cloudd/2060.11 CFNetwork/1408.0.4 Darwin/22.5.0",
+            "x-cloudkit-app-bundleid": ".".join(
+                self.container.split(".")[1:]
+            ),  # Remove the "iCloud." prefix
+            "x-apple-mmcs-plist-version": "v1.0",
+            #"x-cloudkit-deviceid": 776D147D-DAF3-495F-A834-12526DAECA5C
+            "x-apple-mmcs-proto-version": "5.0",
+            "x-mme-client-info": "<MacBookPro18,3> <macOS;13.4.1;22F82> <com.apple.icloud.content/2050.13.1.1 (com.apple.CloudKit/(null))>",
+            "x-apple-mmcs-dataclass": "com.apple.Dataclass.CloudKit",
+            #x-apple-mmcs-auth: ioYrDyABi3zrBh0Cqhbg 433 A1W448bBQGfeq/Vu # id len token from authoizeput
+            "x-cloudkit-duetpreclearedmode": "None",
+            #x-apple-operation-id: 11CE5CB3D5FE8A49
+#content-length: 1930
+#accept-language: en-US,en;q=0.9
+            "x-apple-mme-dsid": self.user.dsid,
+            "x-apple-request-uuid": str(uuid.uuid4()).upper(),
+
+            "x-cloudkit-environment": "sandbox" if self.user.sandbox else "production",
+            "accept": "application/vnd.com.apple.me.ubchunk+protobuf",
+#accept-encoding: gzip, deflate, br
+            "content-type": "application/vnd.com.apple.me.ubchunk+protobuf",
+            #"x-apple-operation-group-id: BFC014A5428FB5CC
+            "x-cloudkit-zones": "_defaultZone", # FIXME
+            "x-apple-mmcs-plist-sha256": "fvj0Y/Ybu1pq0r4NxXw3eP51exujUkEAd7LllbkTdK8="
+        }
+    
     def _fetch_user_id(self):
         headers = self._headers(auth=False)
 
@@ -128,9 +158,30 @@ class Container:
 
         headers.update(gsa.generate_anisette_headers())
 
-        body = _build_record_save_request(
-            record, self.container, self.user.sandbox, self.scope, zone, owner
-        )
+        body = _delimit_messages([_cloudkit.RequestOperation(
+            header=_cloudkit.RequestOperationHeader(
+                applicationContainer=self.container,
+                applicationContainerEnvironment=_cloudkit.RequestOperationHeaderContainerEnvironment.SANDBOX if self.user.sandbox else _cloudkit.RequestOperationHeaderContainerEnvironment.PRODUCTION,
+                deviceHardwareID=str(uuid.uuid4()).upper(),
+                targetDatabase=_cloudkit.RequestOperationHeaderDatabase.PUBLIC_DB if self.scope == "PUBLIC" else _cloudkit.RequestOperationHeaderDatabase.PRIVATE_DB if self.scope == "PRIVATE" else _cloudkit.RequestOperationHeaderDatabase.SHARED_DB,
+                isolationLevel=_cloudkit.RequestOperationHeaderIsolationLevel.ZONE,
+            ),
+            request=_cloudkit.Operation(operation_u_u_i_d=str(uuid.uuid4()).upper(), type=_cloudkit.OperationType.RECORD_SAVE_TYPE, last=True),
+            record_save_request=_cloudkit.RecordSaveRequest(
+                record=_cloudkit.Record(
+                    record_identifier=_cloudkit.RecordIdentifier(
+                        value=_cloudkit.Identifier(name=record.name, type=_cloudkit.IdentifierType.RECORD),
+                        zoneIdentifier=_cloudkit.RecordZoneIdentifier(
+                            value=_cloudkit.Identifier(name=zone, type=_cloudkit.IdentifierType.RECORD_ZONE),
+                            ownerIdentifier=_cloudkit.Identifier(name=owner, type=_cloudkit.IdentifierType.USER),
+                        ),
+                    ),
+                    type=_cloudkit.RecordType(name=record.type),
+                    recordField=[_cloudkit.RecordField(identifier=_cloudkit.Identifier(name=key), value=_cloudkit.RecordFieldValue(type=_cloudkit.RecordFieldValueType.STRING_TYPE, stringValue=value)) for key, value in record.fields.items()],
+                )
+            )
+        )])
+
         r = requests.post(
             "https://gateway.icloud.com/ckdatabase/api/client/record/save",
             headers=headers,
@@ -138,9 +189,13 @@ class Container:
             verify=False,
         )
 
-        _parse_response(
-            r.content
-        )  # Will raise an exception if the response is an error
+        r = _cloudkit.ResponseOperation().parse(_undelimit_messages(r.content)[0])
+
+        if r.result.code != _cloudkit.ResponseOperationResultCode.SUCCESS:
+            logger.error(f"CloudKit request failed: {r.result.error.error_description}")
+            raise Exception(
+                f"CloudKit request failed: {r.result.error.error_description}"
+            )
 
     def _upload_asset(self, record: Record, asset: Asset): # Called by save_record when the record has an asset attached
         headers = self._headers()
@@ -157,92 +212,55 @@ class Container:
             data=body,
             verify=False,
         )
+        import base64
+        print(base64.b64encode(r.content))
+        #r = _parse_response(r.content)
 
-        r = _parse_response(r.content)
 
-        print(r.assetUploadTokenRetrieveResponse)
+        print(r.asset_upload_token_retrieve_response)
 
-        buckets = [] # dict[Bucket, list[tuple[hash, key, data]]]
-        for bucket in r.assetUploadTokenRetrieveResponse.uploadInfo.buckets:
+        buckets: list[mmcs.Bucket]= [] # dict[Bucket, list[tuple[hash, key, data]]]
+        for bucket in r.asset_upload_token_retrieve_response.upload_info.buckets:
             b = mmcs.Bucket(
+                bucket.bucket_name,
+                bucket.unk1,
                 bucket.url.protocol2 + "://" + bucket.url.domain + ":" + str(bucket.url.port) + bucket.url.path, 
                 {header.name: header.value for header in bucket.url.headers},
                 [chunk.hash for chunk in bucket.chunks]
                 )
             buckets.append(b)
-            
-            # for chunk_h in bucket.chunks:
-            #     chunk_hash = chunk_h.hash
-            #     print(chunk_hash.hex())
-            #     # Check for the chunk in chunks list
-            #     for chunk in chunks:
-            #         print(chunk[0].hex())
-            #         if chunk[0] == chunk_hash:
 
-            #             upload.append({b: chunk})
-            #             break
-            #upload.append({bucket: []}
-        #print(upload)
+        lens = mmcs.upload_chunks(chunks, buckets)
 
-        mmcs.upload_chunks(chunks, buckets)
-            
+        headers = self._alt_headers()
+        headers["x-apple-mmcs-auth"]= f"{buckets[0].name} {lens[0][0]} {buckets[0].token}"
 
-        # map: mmcs.ChunkMap = {} # TODO: STUB
+        requests.post(
+            f"https://gateway.icloud.com/content/CiCloud.dev.jjtech.experiments.cktest/putComplete",
+            headers = headers,
+            data = _build_put_complete(buckets, r.asset_upload_token_retrieve_response.upload_info.validate, lens),
+            verify=False,
+        )
 
-        # file.upload(map)
+
 
         # # CompletePut
 
 
-
-
-
-def _parse_response(response: bytes):
-    try:
-        #import base64
-        #print(base64.b64encode(_undelimit_messages(response)[0]))
-        r = cloudkit_pb2.ResponseOperation.FromString(_undelimit_messages(response)[0])
-    except Exception as e:
-        logger.warning(f"Failed to parse response: {e} {response.hex()}")
-        raise
-
-    if r.result.code != cloudkit_pb2.ResponseOperation.Result.Code.SUCCESS:
-        if r.result.code == cloudkit_pb2.ResponseOperation.Result.Code.FAILURE:
-            raise Exception(
-                f"CloudKit request failed: {r.result.error.errorDescription}"
-            )
-        else:
-            raise Exception("Unknown CloudKit error")
-        
-    return r
-
-def _build_header(
-    container: str,
-    sandbox: bool = False,
-    database: Literal["PUBLIC"] | Literal["PRIVATE"] | Literal["SHARED"] = "PUBLIC",
-):
-    hardware_id = uuid.uuid4()  # Generate a new hardware ID for each request?
-
-    header = cloudkit_pb2.RequestOperation.Header()
-    header.applicationContainer = container
-    header.applicationContainerEnvironment = (
-        cloudkit_pb2.RequestOperation.Header.ContainerEnvironment.SANDBOX
-        if sandbox
-        else cloudkit_pb2.RequestOperation.Header.ContainerEnvironment.PRODUCTION
-    )
-
-    header.deviceHardwareID = str(hardware_id).upper()
-
-    if database == "PUBLIC":
-        header.targetDatabase = cloudkit_pb2.RequestOperation.Header.Database.PUBLIC_DB
-    elif database == "PRIVATE":
-        header.targetDatabase = cloudkit_pb2.RequestOperation.Header.Database.PRIVATE_DB
-    elif database == "SHARED":
-        header.targetDatabase = cloudkit_pb2.RequestOperation.Header.Database.SHARED_DB
-
-    header.isolationLevel = cloudkit_pb2.RequestOperation.Header.IsolationLevel.ZONE
-
-    return header
+def _build_put_complete(buckets: list[mmcs.Bucket], validate, lens):
+    p = _cloudkit.PutComplete()
+    for i in range(len(buckets)):
+        bucket = buckets[i]
+        len = lens[i]
+        p.receipt.append(_cloudkit.PutCompleteReceipt(url=bucket.url, status=200, verify=bucket.token, unk2=0),
+                         header={header.name: header.value for header in len[1].headers if header.name.lower() == "etag" or header.name.lower() == "x-apple-edge-info"})
+    #request = cloudkit_pb2.PutComplete()
+    #request.receipt.append(cloudkit_pb2.PutComplete.Receipt(url=buckets[0].url, status=200, verify=buckets[0].token, unk2=0))
+    # for header in lens[0][1].headers.keys():
+    #     if header.lower() == "etag" or header.lower() == "x-apple-edge-info":
+    #         request.receipt[0].headers.append(cloudkit_pb2.NamedHeader(name=header, value=lens[0][1].headers[header]))
+    p.validate = validate
+    return _delimit_messages([bytes(p)])
 
 def _build_authorize_put(
     container: Container,
@@ -250,12 +268,23 @@ def _build_authorize_put(
     asset: Asset, # asset metadata, unencrypted
     chunks: list[tuple[bytes, bytes, bytes]],
 ) -> bytes:
-    request = cloudkit_pb2.RequestOperation()
-    request.header.CopyFrom(_build_header(container.container, container.user.sandbox, container.scope))
+    r = _cloudkit.AssetUploadTokenRetrieveRequest(
+        assetUpload=_cloudkit.AssetUploadTokenRetrieveRequestAssetUpload(
+            #record=_cloudkit.RecordIdentifier(
+        )
 
-    request.request.operationUUID = str(uuid.uuid4()).upper()
-    request.request.type = cloudkit_pb2.Operation.Type.ASSET_UPLOAD_TOKEN_RETRIEVE_TYPE
-    request.request.last = True
+    )
+    request = _cloudkit.RequestOperation(
+        header=_build_header(container.container, container.user.sandbox, container.scope),
+        request=_cloudkit.Operation(operation_u_u_i_d=str(uuid.uuid4()).upper(), type=_cloudkit.OperationType.ASSET_UPLOAD_TOKEN_RETRIEVE_TYPE, last=True),
+        asset_upload_token_retrieve_request=_cloudkit.AssetUploadTokenRetrieveRequest()
+    )
+    # request = cloudkit_pb2.RequestOperation()
+    # request.header.CopyFrom(_build_header(container.container, container.user.sandbox, container.scope))
+
+    # request.request.operationUUID = str(uuid.uuid4()).upper()
+    # request.request.type = cloudkit_pb2.Operation.Type.ASSET_UPLOAD_TOKEN_RETRIEVE_TYPE
+    # request.request.last = True
 
     request.assetUploadTokenRetrieveRequest.assetUpload.record.CopyFrom(_build_record_identifier(record))
     request.assetUploadTokenRetrieveRequest.assetUpload.recordType.name = record.type
@@ -294,25 +323,6 @@ def _build_authorize_put(
 
     return _delimit_messages([request.SerializeToString()])
 
-
-
-def _build_record_identifier(record: Record):
-    record_identifier = cloudkit_pb2.RecordIdentifier()
-    record_identifier.value.name = record.name
-    record_identifier.value.type = cloudkit_pb2.Identifier.Type.RECORD
-
-    record_identifier.zoneIdentifier.value.name = record.zone
-    record_identifier.zoneIdentifier.value.type = (
-        cloudkit_pb2.Identifier.Type.RECORD_ZONE
-    )
-
-    record_identifier.zoneIdentifier.ownerIdentifier.name = record.owner
-    record_identifier.zoneIdentifier.ownerIdentifier.type = (
-        cloudkit_pb2.Identifier.Type.USER
-    )
-
-    return record_identifier
-
 def _delimit_messages(messages: list[bytes]):
     output = BytesIO()
     for message in messages:
@@ -333,51 +343,3 @@ def _undelimit_messages(data: bytes):
             break
         output.append(datar.read(length))
     return output
-
-
-def _build_record_save_request(
-    record: Record,
-    container: str,
-    sandbox: bool = False,
-    database: Literal["PUBLIC"] | Literal["PRIVATE"] | Literal["SHARED"] = "PUBLIC",
-    zone: str = "_defaultZone",
-    owner: str = "_defaultOwner",
-):
-    operation_uuid = uuid.uuid4()  # Generate a new operation UUID for each request?
-    # record_id = uuid.uuid4()  # Generate a new record ID for each request?
-
-    request = cloudkit_pb2.RequestOperation()
-    request.header.CopyFrom(_build_header(container, sandbox, database))
-
-    request.request.operationUUID = str(operation_uuid).upper()
-    request.request.type = cloudkit_pb2.Operation.Type.RECORD_SAVE_TYPE
-    request.request.last = True
-
-    request.recordSaveRequest.record.recordIdentifier.value.name = record.name
-    request.recordSaveRequest.record.recordIdentifier.value.type = (
-        cloudkit_pb2.Identifier.Type.RECORD
-    )
-
-    request.recordSaveRequest.record.recordIdentifier.zoneIdentifier.value.name = zone
-    request.recordSaveRequest.record.recordIdentifier.zoneIdentifier.value.type = (
-        cloudkit_pb2.Identifier.Type.RECORD_ZONE
-    )
-
-    request.recordSaveRequest.record.recordIdentifier.zoneIdentifier.ownerIdentifier.name = (
-        owner
-    )
-    request.recordSaveRequest.record.recordIdentifier.zoneIdentifier.ownerIdentifier.type = (
-        cloudkit_pb2.Identifier.Type.USER
-    )
-
-    request.recordSaveRequest.record.type.name = record.type
-
-    for key, value in record.fields.items():
-        request.recordSaveRequest.record.recordField.append(cloudkit_pb2.Record.Field())
-        request.recordSaveRequest.record.recordField[-1].identifier.name = key
-        request.recordSaveRequest.record.recordField[
-            -1
-        ].value.type = cloudkit_pb2.Record.Field.Value.Type.STRING_TYPE
-        request.recordSaveRequest.record.recordField[-1].value.stringValue = value
-
-    return _delimit_messages([request.SerializeToString()])
