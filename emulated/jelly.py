@@ -35,12 +35,16 @@ class VirtualInstructions:
             else:
                 self.push(args[i])
 
-    def call(self, address: int, args: list[int] = []):
+    def call(self, address: int, args: list[int] = []) -> int:
         logger.debug(f"Calling {hex(address)} with args {args}")
         self.push(STOP_ADDRESS)
         self._set_args(args)
         self.uc.emu_start(address, STOP_ADDRESS)
-        return self.uc.reg_read(unicorn.x86_const.UC_X86_REG_RAX)
+        ret = self.uc.reg_read(unicorn.x86_const.UC_X86_REG_RAX)
+        if not isinstance(ret, int):
+            raise NotImplementedError("What do we do here?")
+        return ret
+
 
 class Jelly:
     # Constants

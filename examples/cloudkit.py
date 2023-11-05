@@ -35,7 +35,7 @@ def main():
         USERNAME = input("Username: ")
         PASSWORD = input("Password: ")
 
-        r = icloud.login(USERNAME, PASSWORD, delegates=["com.apple.mobileme"])
+        r = icloud.login(USERNAME, PASSWORD, delegates=set("com.apple.mobileme"))
         print(r)
 
         cloudkit_token = r['delegates']['com.apple.mobileme']['service-data']['tokens']['cloudKitToken']

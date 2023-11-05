@@ -61,7 +61,7 @@ class Bucket:  # Also known as a container
         return requests.put(self.url, data=data, headers=self.headers, verify=False)
 
     def download(self) -> list[bytes]:
-        pass
+        raise NotImplementedError()
 
 def hash_chunk(chunk: bytes) -> bytes:
     return b"\x81" + hashlib.sha256(hashlib.sha256(chunk).digest()).digest()[:20]

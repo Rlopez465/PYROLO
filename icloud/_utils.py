@@ -31,7 +31,7 @@ class ULEB128:
         return r
 
     @staticmethod
-    def decode_reader(r: typing.BinaryIO) -> (int, int):
+    def decode_reader(r: typing.BinaryIO) -> tuple[int, int]:
         a = bytearray()
         while True:
             b = ord(r.read(1))
@@ -55,7 +55,7 @@ class ILEB128:
 
     @staticmethod
     def decode(b: bytearray) -> int:
-        r = 0
+        r = i = e = 0
         for i, e in enumerate(b):
             r = r + ((e & 0x7F) << (i * 7))
         if e & 0x40 != 0:
@@ -63,7 +63,7 @@ class ILEB128:
         return r
 
     @staticmethod
-    def decode_reader(r: typing.BinaryIO) -> (int, int):
+    def decode_reader(r: typing.BinaryIO) -> tuple[int, int]:
         a = bytearray()
         while True:
             b = ord(r.read(1))

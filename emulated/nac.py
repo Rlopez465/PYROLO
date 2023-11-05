@@ -35,7 +35,10 @@ def get_x64_slice(binary: bytes) -> bytes:
     # If there is no x64 slice, raise an exception
     p = macholibre.Parser(binary)
     # Parse the binary to find the x64 slice
-    off, size = p.u_get_offset(cpu_type="X86_64")
+    o = p.u_get_offset(cpu_type="X86_64")
+    if o is None:
+        raise Exception("Slice x64 not found!")
+    off, size = o
     return binary[off : off + size]
 
 
@@ -232,7 +235,7 @@ def CFDictionaryCreateMutable(j: Jelly) -> int:
     CF_OBJECTS.append({})
     return len(CF_OBJECTS)
 
-def maybe_object_maybe_string(j: Jelly, obj: int):
+def maybe_object_maybe_string(j: Jelly, obj: int | str):
     # If it's already a str
     if isinstance(obj, str):
         return obj
@@ -244,8 +247,8 @@ def maybe_object_maybe_string(j: Jelly, obj: int):
     else:
         return CF_OBJECTS[obj - 1]
 
-def CFDictionaryGetValue(j: Jelly, d: int, key: int) -> int:
-    logger.debug(f"CFDictionaryGetValue: {d} {hex(key)}")
+def CFDictionaryGetValue(j: Jelly, d: int, key: int | str) -> int:
+    logger.debug(f"CFDictionaryGetValue: {d} {key}")
     d = CF_OBJECTS[d - 1]
     if key == 0xc3c3c3c3c3c3c3c3:
         key = "DADiskDescriptionVolumeUUIDKey" # Weirdness, this is a hack
@@ -262,7 +265,7 @@ def CFDictionaryGetValue(j: Jelly, d: int, key: int) -> int:
     else:
         raise Exception("Unknown CF object type")
 
-def CFDictionarySetValue(j: Jelly, d: int, key: int, val: int):
+def CFDictionarySetValue(j: Jelly, d: int, key: int | str, val: int | str):
     d = CF_OBJECTS[d - 1]
     key = maybe_object_maybe_string(j, key)
     val = maybe_object_maybe_string(j, val)
@@ -297,9 +300,9 @@ def CFStringGetCString(j: Jelly, string: int, buf: int, buf_len: int, encoding: 
     else:
         raise Exception("Unknown CF object type")
 
-def IOServiceMatching(j: Jelly, name: int) -> int:
+def IOServiceMatching(j: Jelly, name_ptr: int) -> int:
     # Read the raw c string pointed to by name
-    name = _parse_cstr_ptr(j, name)
+    name = _parse_cstr_ptr(j, name_ptr)
     logger.debug(f"IOServiceMatching: {name}")
     # Create a CFString from the name
     name = CFStringCreate(j, name)

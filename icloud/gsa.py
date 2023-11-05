@@ -119,7 +119,7 @@ def _generate_cpd() -> dict:
 
 
 def _generate_meta_headers(
-    serial: str = "0", user_id: uuid = uuid.uuid4(), device_id: uuid = uuid.uuid4()
+    serial: str = "0", user_id: uuid.UUID = uuid.uuid4(), device_id: uuid.UUID = uuid.uuid4()
 ) -> dict:
     return {
         "X-Apple-I-Client-Time": datetime.utcnow().replace(microsecond=0).isoformat()
@@ -197,7 +197,7 @@ def authenticated_request(parameters) -> dict:
         "Content-Type": "text/x-xml-plist",
         "Accept": "*/*",
         "User-Agent": USER_AGENT,
-        "X-MMe-Client-Info": build_client(emulated_app="Xcode"),
+        "X-MMe-Client-Info": build_client(app_bundle="Xcode"),
     }
 
     resp = requests.post(
@@ -263,7 +263,7 @@ def trusted_second_factor(dsid, idms_token):
         "X-Apple-Identity-Token": identity_token,
         "X-Apple-App-Info": "com.apple.gs.xcode.auth",
         "X-Xcode-Version": "11.2 (11B41)",
-        "X-Mme-Client-Info": build_client(emulated_app="Xcode"),
+        "X-Mme-Client-Info": build_client(app_bundle="Xcode"),
     }
 
     headers.update(generate_anisette_headers())
@@ -354,7 +354,7 @@ def sms_second_factor(dsid, idms_token):
     # print("2FA successful")
 
 
-def authenticate(username, password):
+def authenticate(username, password) -> dict:
     # Password is None as we'll provide it later
     usr = srp.User(username, bytes(), hash_alg=srp.SHA256, ng_type=srp.NG_2048)
     _, A = usr.start_authentication()
@@ -371,13 +371,14 @@ def authenticate(username, password):
 
     # Check for an error code
     if check_error(r):
-        return
+        raise Exception(f"GSA Exception") # TODO IMPROVE
 
     if r["sp"] != "s2k":
         logger.error(
             f"This implementation only supports s2k. Server returned {r['sp']}"
         )
-        return
+        raise Exception(f"GSA Exception")
+
 
     # Change the password out from under the SRP library, as we couldn't calculate it without the salt.
     usr.p = encrypt_password(password, r["s"], r["i"])  # type: ignore
@@ -387,7 +388,8 @@ def authenticate(username, password):
     # Make sure we processed the challenge correctly
     if M is None:
         logger.critical("Failed to process challenge")
-        return
+        raise Exception(f"GSA Exception")
+
 
     r = authenticated_request(
         {
@@ -399,13 +401,15 @@ def authenticate(username, password):
     )
 
     if check_error(r):
-        return
+        raise Exception(f"GSA Exception")
+
 
     # Make sure that the server's session key matches our session key (and thus that they are not an imposter)
     usr.verify_session(r["M2"])
     if not usr.authenticated():
         logger.critical("Failed to verify session")
-        return
+        raise Exception(f"GSA Exception")
+
 
     spd = decrypt_cbc(usr, r["spd"])
     # For some reason plistlib doesn't accept it without the header...
@@ -426,9 +430,10 @@ def authenticate(username, password):
     elif "au" in r["Status"] and r["Status"]["au"] == "secondaryAuth":
         logger.info("SMS authentication required")
         sms_second_factor(spd["adsid"], spd["GsIdmsToken"])
+        return authenticate(username, password)
     elif "au" in r["Status"]:
         logger.info(f"Unknown auth value {r['Status']['au']}")
-        return
+        raise Exception("Unknown GSA auth value")
     else:
         # print("Assuming 2FA is not required")
         return spd

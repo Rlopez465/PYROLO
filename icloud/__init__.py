@@ -17,7 +17,7 @@ USER_AGENT = "com.apple.iCloudHelper/282 CFNetwork/1408.0.4 Darwin/22.5.0"
 def login(
     username: str,
     password: str,
-    delegates: set[str] = ["com.apple.private.ids"],
+    delegates: set[str] = set("com.apple.private.ids"),
     grandslam: bool = True,
     anisette: str | bool = False,
 ):
@@ -38,14 +38,17 @@ def login(
         password = g["t"]["com.apple.gs.idms.pet"]["token"]
         adsid = g["adsid"]
         logger.debug("Authenticated with GrandSlam")
+    else:
+        adsid = None
+        raise NotImplementedError("We don't know how to get ADSID w/o GrandSlam")
 
-    delegates = {delegate: {} for delegate in delegates}
+    delegates_dict = {delegate: {} for delegate in delegates}
     if "com.apple.private.ids" in delegates:
-        delegates["com.apple.private.ids"]["protocol-version"] = "4"
+        delegates_dict["com.apple.private.ids"]["protocol-version"] = "4"
 
     data = {
         "apple-id": username,
-        "delegates": delegates,
+        "delegates": delegates_dict,
         "password": password,
         "client-id": str(uuid.uuid4()),
     }
@@ -56,7 +59,7 @@ def login(
         #"X-Mme-Nas-Qualify": base64.b64encode(nac.generate_validation_data()).decode(), # Only necessary with new prefpane URL
         "User-Agent": USER_AGENT,
         "X-Mme-Client-Info": gsa.build_client(
-            emulated_app="accountsd"
+            app_bundle="accountsd"
         ),  # Otherwise we get MOBILEME_TERMS_OF_SERVICE_UPDATE on some accounts
     }
     headers.update(gsa.generate_anisette_headers())

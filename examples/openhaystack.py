@@ -32,7 +32,7 @@ else:
     USERNAME = input("Username: ")
     PASSWORD = input("Password: ")
 
-    r = icloud.login(USERNAME, PASSWORD, delegates=["com.apple.mobileme"])
+    r = icloud.login(USERNAME, PASSWORD, delegates=set("com.apple.mobileme"))
 
     search_party_token = r['delegates']['com.apple.mobileme']['service-data']['tokens']['searchPartyToken']
     #ds_prs_id = r['delegates']['com.apple.mobileme']['service-data']['appleAccountInfo']['dsPrsID'] # This can also be obtained from the grandslam response
