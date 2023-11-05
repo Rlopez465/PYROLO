@@ -91,7 +91,7 @@ message RequestOperation {
       }
       
       message Asset {
-        message AssetData {
+        message AssetData { // TODO: This is the same as the top-level Asset?
           optional bytes sig = 2;
           optional uint32 size = 4;
           optional RecordIdentifier associatedRecord = 10;

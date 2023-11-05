@@ -61,7 +61,7 @@ def main():
     with open("/Users/jjtech/Downloads/test.rtf", "rb") as f:
         file = f.read()
 
-    file = random.randbytes(2)
+    file = random.randbytes(200)
 
 
     a = cloudkit.Asset("test", "rtf", file)
@@ -70,7 +70,7 @@ def main():
     #cloudkit._build_authorize_put(cloudkit.Record("testassset", "test", None), a, "iCloud.dev.jjtech.experiments.cktest")
     #a._authorize_put(ck.container("iCloud.dev.jjtech.experiments.cktest"), cloudkit.Record("testassset", "test", None), a)
     c =ck.container("iCloud.dev.jjtech.experiments.cktest")
-    c._upload_asset(cloudkit.Record("another", "test", None), a)
+    c._upload_asset(cloudkit.Record("what", "test", {}), a)
     #c = cloudkit.CloudKitAsset.Chunk(file, None)
     #print(c.checksum().hex())
         

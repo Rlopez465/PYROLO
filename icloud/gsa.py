@@ -47,7 +47,7 @@ urllib3.disable_warnings()
 
 
 def build_client(
-    emulated_device: str = "MacBookPro18,3", emulated_app: str = "accountsd"
+    emulated_device: str = "MacBookPro18,3", app_bundle: str = "accountsd", app_version: str = "113", authkit_bundle: str = "com.apple.AOSKit", authkit_version: str = "282"
 ) -> str:
     """'Client Information'
     String in the following format:
@@ -73,25 +73,26 @@ def build_client(
         os_version = "6.2(0,0);9200"
     else:
         # We're emulating a Mac, so we run macOS Ventura
-        os = "Mac OS X"
+        #os = "Mac OS X"
+        os = "macOS"
         os_version = "13.4.1;22F8"
 
-    if emulated_app == "Xcode":
+    if app_bundle == "Xcode":
         app_bundle = "com.apple.dt.Xcode"
         app_version = "3594.4.19"
-    elif emulated_app == "accountsd":
+    elif app_bundle == "accountsd":
         app_bundle = "com.apple.accountsd"
         app_version = "113"
-    else:
-        app_bundle = "com.apple.iCloud"
-        app_version = "7.21"
+    #else:
+    #    app_bundle = "com.apple.iCloud"
+    #    app_version = "7.21"
 
-    if os == "Windows":
-        authkit_bundle = "com.apple.AuthKitWin"
-        authkit_version = "1"
-    else:
-        authkit_bundle = "com.apple.AOSKit"
-        authkit_version = "282"
+    # if os == "Windows":
+    #     authkit_bundle = "com.apple.AuthKitWin"
+    #     authkit_version = "1"
+    # else:
+    #     authkit_bundle = "com.apple.AOSKit"
+    #     authkit_version = "282"
 
     return f"<{model}> <{os};{os_version}> <{authkit_bundle}/{authkit_version} ({app_bundle}/{app_version})>"
 
