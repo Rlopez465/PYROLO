@@ -86,7 +86,7 @@ def chunk(data: bytes) -> list[Chunk]:
 
 @dataclass
 class UploadReceipt:
-    md5: str
+    md5: bytes
     headers: dict[str, str]
     size: int
 
@@ -104,7 +104,7 @@ def upload_chunks(chunks_to_upload: list[Chunk], buckets: list[Bucket]) -> list[
         to_upload = b"".join(to_upload)
         resp = bucket.upload(to_upload)
         receipts.append(
-            UploadReceipt(hashlib.md5(to_upload).digest().hex(), dict(resp.headers), len(to_upload))
+            UploadReceipt(hashlib.md5(to_upload).digest(), dict(resp.headers), len(to_upload))
         )
 
     return receipts

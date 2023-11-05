@@ -259,7 +259,7 @@ class PutCompleteReceipt(betterproto.Message):
     url: str = betterproto.string_field(1)
     status: int = betterproto.uint32_field(2)
     headers: List["NamedHeader"] = betterproto.message_field(4)
-    unk1: str = betterproto.string_field(7)
+    upload_md5: bytes = betterproto.bytes_field(7)
     stats1: List["NamedHeader"] = betterproto.message_field(8)
     stats2: List["NamedHeader"] = betterproto.message_field(9)
     verify: str = betterproto.string_field(10)

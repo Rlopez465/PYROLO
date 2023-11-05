@@ -12,7 +12,7 @@ message PutComplete {
     optional string url = 1;
     optional uint32 status = 2;
     repeated NamedHeader headers = 4;
-    optional string unk1 = 7;
+    optional bytes uploadMd5 = 7;
     repeated NamedHeader stats1 = 8;
     repeated NamedHeader stats2 = 9;
     optional string verify = 10;

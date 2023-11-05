@@ -241,8 +241,9 @@ class Container:
         )
 
         r = _cloudkit.ResponseOperation().parse(_undelimit_messages(r.content)[0])
+        #print(r)
 
-        print(r.asset_upload_token_retrieve_response)
+        #print(r.asset_upload_token_retrieve_response)
 
         buckets: list[mmcs.Bucket] = []
         for bucket in r.asset_upload_token_retrieve_response.upload_info.buckets:
@@ -267,7 +268,7 @@ class Container:
             "x-apple-mmcs-auth"
         ] = f"{buckets[0].name} {receipts[0].size} {buckets[0].token}"
 
-        requests.post(
+        r = requests.post(
             f"https://gateway.icloud.com/content/CiCloud.dev.jjtech.experiments.cktest/putComplete",
             headers=headers,
             data=_build_put_complete(
@@ -277,42 +278,84 @@ class Container:
             ),
             verify=False,
         )
-
+        
+        print(r.content.hex())
         # # CompletePut
 
 
 def _build_put_complete(buckets: list[mmcs.Bucket], validate, receipts: list[mmcs.UploadReceipt]):
-    p = _cloudkit.PutComplete()
-    for i in range(len(buckets)):
-        bucket = buckets[i]
-        l = receipts[i]
-        p.receipt.append(
+    p = _cloudkit.PutComplete(
+        receipt=[
             _cloudkit.PutCompleteReceipt(
-                url=bucket.url,
+                url=buckets[i].url,
                 status=200,
-                verify=bucket.token,
-                unk2=0,
+                verify=buckets[i].token,
+                #unk2=0,
                 headers=[
                     _cloudkit.NamedHeader(k, v)
-                    for k, v in l.headers.items()
+                    for k, v in receipts[i].headers.items()
                     if k.lower() == "etag"
                     or k.lower() == "x-apple-edge-info"
                 ],
-            ),
-            # header={
-            #     header.name: header.value
-            #     for header in l[1].headers
-            #     if header.name.lower() == "etag"
-            #     or header.name.lower() == "x-apple-edge-info"
-            # },
-        )
-    # request = cloudkit_pb2.PutComplete()
-    # request.receipt.append(cloudkit_pb2.PutComplete.Receipt(url=buckets[0].url, status=200, verify=buckets[0].token, unk2=0))
-    # for header in lens[0][1].headers.keys():
-    #     if header.lower() == "etag" or header.lower() == "x-apple-edge-info":
-    #         request.receipt[0].headers.append(cloudkit_pb2.NamedHeader(name=header, value=lens[0][1].headers[header]))
-    p.validate = validate
-    return _delimit_messages([bytes(p)])
+                upload_md5=receipts[i].md5,
+                # stats1=[
+                #     _cloudkit.NamedHeader("vendor.send.bytes", "2000"),
+                #     _cloudkit.NamedHeader("vendor.average.roundtrip.millis", "4000"),
+                #     _cloudkit.NamedHeader("vendor.recv.bytes", "25152"),
+                #     _cloudkit.NamedHeader("vendor.network.interface", "bridge100"),
+                #     _cloudkit.NamedHeader("vendor.roundtrip.millis", "757"),
+                #     _cloudkit.NamedHeader("contentlength.bytes", str(receipts[i].size)),
+                #     _cloudkit.NamedHeader("vendor.nameresolution.millis", "0"),
+                #     _cloudkit.NamedHeader("vendor.request.qos", "fg")
+                # ],
+                # stats2=[
+                #     _cloudkit.NamedHeader("cachingServer.used", "false"),
+                #     _cloudkit.NamedHeader("chunking.time.millis", "0")
+                # ]
+            )
+            for i in range(len(buckets))
+        ],
+        validate=validate
+    )
+    #p.serialize_empty = True
+    #p.receipt[0].serialize_empty = True
+    #p.receipt[0]..
+    # p = _cloudkit.PutComplete()
+    # for i in range(len(buckets)):
+    #     bucket = buckets[i]
+    #     l = receipts[i]
+    #     p.receipt.append(
+    #         _cloudkit.PutCompleteReceipt(
+    #             url=bucket.url,
+    #             status=200,
+    #             verify=bucket.token,
+    #             unk2=0,
+    #             headers=[
+    #                 _cloudkit.NamedHeader(k, v)
+    #                 for k, v in l.headers.items()
+    #                 if k.lower() == "etag"
+    #                 or k.lower() == "x-apple-edge-info"
+    #             ],
+    #             upload_md5=receipts[i].md5
+                
+    #         ),
+    #         # header={
+    #         #     header.name: header.value
+    #         #     for header in l[1].headers
+    #         #     if header.name.lower() == "etag"
+    #         #     or header.name.lower() == "x-apple-edge-info"
+    #         # },
+    #     )
+    # # request = cloudkit_pb2.PutComplete()
+    # # request.receipt.append(cloudkit_pb2.PutComplete.Receipt(url=buckets[0].url, status=200, verify=buckets[0].token, unk2=0))
+    # # for header in lens[0][1].headers.keys():
+    # #     if header.lower() == "etag" or header.lower() == "x-apple-edge-info":
+    # #         request.receipt[0].headers.append(cloudkit_pb2.NamedHeader(name=header, value=lens[0][1].headers[header]))
+    # p.validate = validate
+    #print()
+    #print(bytes(p).hex())
+    #return _delimit_messages([bytes(p)])
+    return bytes(p)
 
 
 def _build_authorize_put(
@@ -381,7 +424,7 @@ def _build_authorize_put(
         ),
     )
 
-    print(request)
+    #print(request)
 
     return _delimit_messages([request.SerializeToString()])
 
