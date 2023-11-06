@@ -5,4 +5,4 @@ srp
 pbkdf2
 unicorn
 rich
-prompt_toolkit
+betterproto>=2.0.0b6 # Bug with enum handling on stable version :(
