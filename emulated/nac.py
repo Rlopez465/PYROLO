@@ -104,7 +104,7 @@ def nac_key_establishment(j: Jelly, validation_ctx: int, response: bytes):
         n = (n ^ 0x80000000) - 0x80000000
         raise Exception(f"Error calling nac_submit: {n}")
 
-def nac_sign(j: Jelly, validation_ctx: int, data: bytes):
+def nac_sign(j: Jelly, validation_ctx: int, data: bytes | None = None):
     #void *validation_ctx, void *unk_bytes, int unk_len,
     #            void **validation_data, int *validation_data_len
 
@@ -112,8 +112,12 @@ def nac_sign(j: Jelly, validation_ctx: int, data: bytes):
     out_validation_data_len_addr = j.malloc(8)
 
     # Allocate memory for the data
-    data_addr = j.malloc(len(data))
-    j.uc.mem_write(data_addr, data)
+    if data is not None:
+        data_addr = j.malloc(len(data))
+        j.uc.mem_write(data_addr, data)
+    else:
+        data = b""
+        data_addr = 0
 
     ret = j.instr.call(
         0xB1DF0,
@@ -418,7 +422,7 @@ def generate_validation_data() -> bytes:
     logger.debug("Got session info")
     nac_key_establishment(j, val_ctx, session_info)
     logger.debug("Submitted session info")
-    val_data = nac_sign(j, val_ctx, """{"account":{"name":"dbainv@hotmail.com","password":"Vmx86190","person":{"name":{"firstName":"tuoerr","lastName":"annyerr"},"birthday":"1993-07-06"},"preferences":{"marketingPreferences":{"appleUpdates":true,"iTunesUpdates":true}}},"createContext":{"token":"SSCT00126337a6259cc0c1dae299a7866489dff0bdVKZZDUDON320db770-be74-4dd2-a2bd-792035405b22d8525f46c7e24711a17942f207795afe8942078bf3595b7d0ee25b5b89d0a22332f3ac88eef1e0645476c5e5126d90f09c021f19caf9dd68dd735558e405efcd0e828e9c9ab7e65b509c1d621e8d860c67d1a9130944ce6ce6526130f758e9a3db5ccde8316e2593eebf88bd739e50c3737aeee61665fcb58fb4999c8cd396a1b1fbc28bebab43002330dabf3b8f2e4fdd28271da7f14c63dd837780973ccad07e8821ad8c7ce771610eec9ea0ccfee7ed88fffe78034a2fed93de08811184d44a1515b611a1f541d29006dbac999bfef1ac01aa518ea6dc09f75ff8317f27080a2ae98c7c966a16e1dbec9e87a22c530bedca9b830e8667399696369028c21652b994745fb2eb8ba6d718e3efba3c94585a47","type":"icloud"}}""".encode())
+    val_data = nac_sign(j, val_ctx)
     logger.info("Generated validation data")
     return bytes(val_data)
 
